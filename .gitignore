@@ -12,6 +12,9 @@ wheels/
 # Environment variables
 .env
 
+# Kubernetes credentials
+.kube/
+
 # IDE
 .vscode/
 .idea/
@@ -19,3 +22,6 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
+
+# personal ignores
+cf.md

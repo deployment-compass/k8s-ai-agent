@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 
@@ -7,6 +9,7 @@ class Settings(BaseSettings):
     app_debug: bool = True
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    kubeconfig_file: Path = Path(".kube/config")
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
