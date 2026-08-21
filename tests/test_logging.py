@@ -50,6 +50,32 @@ class StubK8s:
     async def get_events(self, namespace):
         return []
 
+    def _unimplemented(self, name):
+        async def handler(*args, **kwargs):
+            raise NotImplementedError(name)
+
+        return handler
+
+    def __getattr__(self, name):
+        if name in (
+            "describe_pod",
+            "describe_deployment",
+            "get_namespaces",
+            "get_endpoints",
+            "get_pvcs",
+            "get_nodes",
+            "describe_node",
+            "get_replicasets",
+            "get_ingresses",
+            "get_statefulsets",
+            "get_daemonsets",
+            "get_jobs",
+            "get_cronjobs",
+            "get_hpas",
+        ):
+            return self._unimplemented(name)
+        raise AttributeError(name)
+
 
 def _settings(**overrides) -> Settings:
     defaults = {

@@ -106,6 +106,186 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
             "required": ["namespace"],
         },
     ),
+    # --- Phase 5.2: expanded diagnostics ---
+    ToolDefinition(
+        name="describe_pod",
+        description=(
+            "Deep inspection of a single pod: per-container state (running/waiting/terminated), "
+            "waiting reasons (CrashLoopBackOff, ImagePullBackOff), last termination reason "
+            "(e.g. OOMKilled), exit codes, restarts, probes, resource requests/limits, volumes, "
+            "and owner chain. Use this to find out WHY a pod is unhealthy."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+                "pod_name": {"type": "string", "description": "Pod name"},
+            },
+            "required": ["namespace", "pod_name"],
+        },
+    ),
+    ToolDefinition(
+        name="describe_deployment",
+        description=(
+            "Deep inspection of a deployment: rollout strategy, conditions with reasons and "
+            "messages, container images, and owned ReplicaSets with revisions for rollout tracing."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+                "name": {"type": "string", "description": "Deployment name"},
+            },
+            "required": ["namespace", "name"],
+        },
+    ),
+    ToolDefinition(
+        name="get_namespaces",
+        description="List namespaces in the cluster with phase and creation time.",
+        parameters={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    ToolDefinition(
+        name="get_endpoints",
+        description=(
+            "Get the backend pod IPs and ports behind a service. Empty addresses usually mean "
+            "a selector mismatch or no ready pods backing the service."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+                "service_name": {"type": "string", "description": "Service name"},
+            },
+            "required": ["namespace", "service_name"],
+        },
+    ),
+    ToolDefinition(
+        name="get_pvcs",
+        description=(
+            "List persistent volume claims in a namespace with binding phase, capacity, and "
+            "storage class. Pending claims can block pods that mount them."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
+    ToolDefinition(
+        name="get_nodes",
+        description="List cluster nodes with Ready condition and kubelet version.",
+        parameters={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    ToolDefinition(
+        name="describe_node",
+        description=(
+            "Deep inspection of a node: pressure/scheduling conditions, taints, allocatable vs "
+            "capacity for CPU/memory/pods, and addresses."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "node_name": {"type": "string", "description": "Node name"},
+            },
+            "required": ["node_name"],
+        },
+    ),
+    ToolDefinition(
+        name="get_replicasets",
+        description=(
+            "List ReplicaSets in a namespace with desired/ready replicas, revision, and owning "
+            "deployment, for rollout history tracing."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
+    ToolDefinition(
+        name="get_ingresses",
+        description="List ingresses in a namespace with hosts, routing rules (path to service), and TLS hosts.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
+    ToolDefinition(
+        name="get_statefulsets",
+        description="List statefulsets in a namespace with replica counts and conditions.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
+    ToolDefinition(
+        name="get_daemonsets",
+        description="List daemonsets in a namespace with desired/ready/available scheduled pod counts.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
+    ToolDefinition(
+        name="get_jobs",
+        description=(
+            "List jobs in a namespace with active/succeeded/failed status, completions, "
+            "and start time."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
+    ToolDefinition(
+        name="get_cronjobs",
+        description="List cronjobs in a namespace with schedule, suspension state, active count, and last schedule time.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
+    ToolDefinition(
+        name="get_hpas",
+        description=(
+            "List horizontal pod autoscalers in a namespace with scale target, min/max/current/"
+            "desired replicas, and CPU utilization target vs current."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "namespace": {"type": "string", "description": "Kubernetes namespace"},
+            },
+            "required": ["namespace"],
+        },
+    ),
 ]
 
 
@@ -151,6 +331,20 @@ class ToolRegistry:
             "get_service": self._k8s.get_service,
             "get_pod_logs": self._k8s.get_pod_logs,
             "get_events": self._k8s.get_events,
+            "describe_pod": self._k8s.describe_pod,
+            "describe_deployment": self._k8s.describe_deployment,
+            "get_namespaces": self._k8s.get_namespaces,
+            "get_endpoints": self._k8s.get_endpoints,
+            "get_pvcs": self._k8s.get_pvcs,
+            "get_nodes": self._k8s.get_nodes,
+            "describe_node": self._k8s.describe_node,
+            "get_replicasets": self._k8s.get_replicasets,
+            "get_ingresses": self._k8s.get_ingresses,
+            "get_statefulsets": self._k8s.get_statefulsets,
+            "get_daemonsets": self._k8s.get_daemonsets,
+            "get_jobs": self._k8s.get_jobs,
+            "get_cronjobs": self._k8s.get_cronjobs,
+            "get_hpas": self._k8s.get_hpas,
         }
 
     def definitions(self) -> list[dict]:
@@ -175,6 +369,9 @@ class ToolRegistry:
             )
 
         arguments = arguments if isinstance(arguments, dict) else {}
+        definition = next(d for d in TOOL_DEFINITIONS if d.name == name)
+        allowed = set(definition.parameters.get("properties", {}).keys())
+        arguments = {k: v for k, v in arguments.items() if k in allowed}
         error = self._validate_arguments(name, arguments)
         if error:
             logger.warning("Tool call rejected: %s args=%s", name, arguments)
@@ -215,18 +412,20 @@ class ToolRegistry:
 
     def _validate_arguments(self, name: str, arguments: dict) -> str | None:
         definition = next(d for d in TOOL_DEFINITIONS if d.name == name)
+        properties = definition.parameters.get("properties", {})
 
-        namespace = arguments.get("namespace")
-        if namespace is None:
-            arguments["namespace"] = self._settings.default_namespace
-        elif error := _validate_name("namespace", namespace):
-            return error
+        if "namespace" in properties:
+            namespace = arguments.get("namespace")
+            if namespace is None:
+                arguments["namespace"] = self._settings.default_namespace
+            elif error := _validate_name("namespace", namespace):
+                return error
 
         for field_name in definition.parameters.get("required", []):
             if field_name not in arguments or not isinstance(arguments[field_name], str):
                 return f"Missing required parameter '{field_name}'."
 
-        for field_name in ("name", "pod_name"):
+        for field_name in ("name", "pod_name", "service_name", "node_name"):
             if field_name in arguments:
                 if error := _validate_name(field_name, arguments[field_name]):
                     return error

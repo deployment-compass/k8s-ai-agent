@@ -50,7 +50,7 @@ async def test_handle_chat_success():
     assert len(client.calls) == 1
     messages, tools = client.calls[0]
     assert [m.role for m in messages] == ["system", "user"]
-    assert isinstance(tools, list) and len(tools) == 7
+    assert isinstance(tools, list) and len(tools) == 21
 
 
 @pytest.mark.asyncio

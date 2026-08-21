@@ -11,6 +11,8 @@ AI-powered Kubernetes Operations Agent. Interact with your Kubernetes cluster us
 | Phase 3 | Kubernetes RBAC | Done |
 | Phase 4 | Introduce the LLM | Done |
 | Phase 5 | Tool Calling | Done |
+| Phase 5.1 | Agent Activity Logging | Done |
+| Phase 5.2 | Expanded Diagnostics (21 tools) | Done |
 
 ## Tech Stack
 
@@ -138,6 +140,8 @@ Response:
 
 With a real provider configured, the agent decides which read-only Kubernetes tools to call:
 
+**Core (Phase 5):**
+
 | Tool | Arguments |
 |------|-----------|
 | `get_pods` | namespace |
@@ -147,6 +151,32 @@ With a real provider configured, the agent decides which read-only Kubernetes to
 | `get_service` | namespace, name |
 | `get_pod_logs` | namespace, pod_name |
 | `get_events` | namespace |
+
+**Diagnostics (Phase 5.2):**
+
+| Tool | Arguments | Answers questions about |
+|------|-----------|-------------------------|
+| `describe_pod` | namespace, pod_name | Crash reasons: waiting states (`CrashLoopBackOff`, `ImagePullBackOff`), last termination (`OOMKilled`), exit codes, probes, resources, volumes, owner chain |
+| `describe_deployment` | namespace, name | Rollout strategy, conditions with reasons, images, owned ReplicaSets |
+| `get_namespaces` | — | Which namespaces exist |
+| `get_endpoints` | namespace, service_name | Service backend pods; empty = selector mismatch or no ready pods |
+| `get_pvcs` | namespace | Volume binding; Pending claims block pod startup |
+| `get_nodes` | — | Node availability and kubelet versions |
+| `describe_node` | node_name | Pressure conditions, taints, allocatable vs capacity |
+| `get_replicasets` | namespace | Rollout history and revisions |
+| `get_ingresses` | namespace | Host/routing rules, TLS hosts |
+| `get_statefulsets` | namespace | Stateful workload health |
+| `get_daemonsets` | namespace | Per-node agent rollout counts |
+| `get_jobs` | namespace | Batch job status (active/succeeded/failed) |
+| `get_cronjobs` | namespace | Schedules and last run time |
+| `get_hpas` | namespace | Autoscaler targets and utilization |
+
+Every `get_pods` result also embeds a `containers[]` list with live per-container
+state and waiting/termination reasons.
+
+The agent has **no access to ConfigMaps or Secrets** (not even names) — this is a
+hard-coded limitation the system prompt makes it state explicitly when relevant.
+Mutation tools arrive in Phase 7 behind the policy engine.
 
 Behavior:
 - **Native mode** (default): tools sent via the provider's function-calling API
@@ -178,13 +208,32 @@ GET /api/v1/clusters/{cluster}/namespaces/{namespace}/...
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET .../pods` | List all pods |
+| `GET .../pods` | List all pods (with per-container states) |
 | `GET .../deployments` | List all deployments |
 | `GET .../deployments/{name}` | Get a specific deployment |
 | `GET .../services` | List all services |
 | `GET .../services/{name}` | Get a specific service |
 | `GET .../pods/{pod_name}/logs` | Get pod logs |
 | `GET .../events` | List all events |
+| `GET .../pods/{pod_name}/describe` | Deep pod inspection (states, probes, volumes, owner chain) |
+| `GET .../deployments/{name}/describe` | Deep deployment inspection (strategy, conditions, ReplicaSets) |
+| `GET .../services/{name}/endpoints` | Service backend addresses and ports |
+| `GET .../pvcs` | List persistent volume claims |
+| `GET .../replicasets` | List ReplicaSets (rollout history) |
+| `GET .../ingresses` | List ingresses |
+| `GET .../statefulsets` | List statefulsets |
+| `GET .../daemonsets` | List daemonsets |
+| `GET .../jobs` | List jobs |
+| `GET .../cronjobs` | List cronjobs |
+| `GET .../hpas` | List horizontal pod autoscalers |
+
+Cluster-scoped:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/v1/clusters/{cluster}/namespaces` | List namespaces |
+| `GET /api/v1/clusters/{cluster}/nodes` | List nodes |
+| `GET /api/v1/clusters/{cluster}/nodes/{name}/describe` | Deep node inspection (conditions, taints, capacity) |
 
 **Examples:**
 
@@ -203,10 +252,23 @@ curl http://localhost:8000/api/v1/clusters/default/namespaces/kube-system/pods/c
 
 | Model | Fields |
 |-------|--------|
-| `PodInfo` | name, namespace, status, ready, restart_count, node, created_at |
+| `PodInfo` | name, namespace, status, ready, restart_count, node, created_at, containers[] (name, image, state, ready, restart_count, waiting_reason, last_termination_reason, exit_code) |
+| `PodDescribe` | name, namespace, phase, node, created_at, conditions, init_containers[], containers[] (+probes, resources), volumes[], owner_chain, node_selector |
 | `DeploymentInfo` | name, namespace, replicas, ready_replicas, updated_replicas, available_replicas, conditions |
+| `DeploymentDescribe` | + strategy, max_surge/max_unavailable, selector, conditions (with reason/message), images, owned_replicasets[] |
 | `ServiceInfo` | name, namespace, type, cluster_ip, ports |
+| `EndpointsInfo` | name, namespace, addresses, not_ready_addresses, ports |
 | `EventInfo` | name, namespace, type, reason, message, count, first_seen, last_seen, involved_object |
+| `NamespaceInfo` | name, phase, created_at |
+| `NodeInfo` / `NodeDescribe` | name, ready, kubelet_version / + unschedulable, conditions, taints, allocatable vs capacity, addresses |
+| `PVCInfo` | name, namespace, phase, capacity, storage_class |
+| `ReplicaSetInfo` | name, namespace, desired, ready, revision, owner_deployment |
+| `IngressInfo` | name, namespace, rules (host, path→service), tls_hosts |
+| `StatefulSetInfo` | name, namespace, replicas, ready_replicas, updated_replicas, conditions |
+| `DaemonSetInfo` | name, namespace, desired_scheduled, ready, available, updated |
+| `JobInfo` | name, namespace, active, succeeded, failed, completions, start_time |
+| `CronJobInfo` | name, namespace, schedule, suspend, active_jobs, last_schedule_time |
+| `HPAInfo` | name, namespace, target, min/max/current/desired replicas, target/current CPU utilization |
 
 **Error responses:**
 
@@ -291,18 +353,29 @@ Without that line, the pod uses `default` and has no access.
 
 **What the app can do (all namespaces):**
 
-| Resource | Verbs |
-|----------|-------|
-| pods | get, list |
-| pods/log | get |
-| deployments | get, list |
-| services | get, list |
-| events | get, list |
+| Resource | API group | Verbs |
+|----------|-----------|-------|
+| pods | core | get, list |
+| pods/log | core | get |
+| services | core | get, list |
+| events | core | get, list |
+| namespaces | core | get, list |
+| endpoints | core | get, list |
+| persistentvolumeclaims | core | get, list |
+| nodes | core | get, list |
+| deployments | apps | get, list |
+| replicasets | apps | get, list |
+| statefulsets | apps | get, list |
+| daemonsets | apps | get, list |
+| jobs | batch | get, list |
+| cronjobs | batch | get, list |
+| ingresses | networking.k8s.io | get, list |
+| horizontalpodautoscalers | autoscaling | get, list |
 
 **What the app cannot do:**
 
 - Create, update, or delete any resource
-- Access secrets, configmaps, or namespaces
+- Access secrets or configmaps — no verbs granted, not even names
 - Modify RBAC policies
 
 **Auth behavior:**
@@ -324,21 +397,20 @@ HTTP Request
      │
   KubernetesClient
      │
-  ┌──┴──┐
-  ▼     ▼
-CoreV1Api  AppsV1Api
-  │     │
-  └──┬──┘
-     ▼
-Kubernetes API
+  ┌──┴────────────┬─────────────┬──────────────┐
+  ▼               ▼             ▼              ▼
+CoreV1Api    AppsV1Api    BatchV1Api   NetworkingV1Api / AutoscalingV2Api
+  │               │             │              │
+  └───────────────┴─────────────┴──────────────┘
+                  │
+                  ▼
+            Kubernetes API
 ```
 
 The `KubernetesClient` is the boundary between your application and the Kubernetes SDK. The API layer never imports or calls the SDK directly.
 
 ## Roadmap
 
-- Phase 4: LLM integration (system messages, context windows, structured output)
-- Phase 5: Tool calling (LLM selects Kubernetes tools)
 - Phase 6: Agent state and reasoning workflow
 - Phase 7: Mutation tools (restart, scale, patch)
 - Phase 8: Human approval
