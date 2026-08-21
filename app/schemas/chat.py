@@ -1,9 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1)
 
 
 class ChatResponse(BaseModel):
-    response: str
+    answer: str
+    reasoning_summary: str
+    suggested_next_steps: list[str] = Field(default_factory=list)

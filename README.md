@@ -9,7 +9,7 @@ AI-powered Kubernetes Operations Agent. Interact with your Kubernetes cluster us
 | Phase 1 | FastAPI Foundation | Done |
 | Phase 2 | Kubernetes Integration | Done |
 | Phase 3 | Kubernetes RBAC | Done |
-| Phase 4 | Introduce the LLM | Pending |
+| Phase 4 | Introduce the LLM | Done |
 
 ## Tech Stack
 
@@ -20,6 +20,7 @@ AI-powered Kubernetes Operations Agent. Interact with your Kubernetes cluster us
 | Package Manager | uv |
 | Validation | Pydantic |
 | Kubernetes Client | Official `kubernetes` Python SDK |
+| LLM | `openai` SDK (OpenRouter / Groq / Gemini / Ollama compatible) |
 | Testing | pytest + httpx |
 
 ## Project Structure
@@ -36,7 +37,14 @@ k8s-ai-agent/
 │   │   ├── chat.py                 # ChatRequest/ChatResponse
 │   │   └── kubernetes.py           # PodInfo, DeploymentInfo, etc.
 │   ├── services/
-│   │   └── chat_service.py         # Chat business logic
+│   │   └── chat_service.py         # Chat orchestration (LLM call + retry)
+│   ├── llm/
+│   │   ├── base.py                 # BaseLLMClient interface + exceptions
+│   │   ├── openai_compatible.py    # OpenAI-compatible adapter
+│   │   ├── mock.py                 # Deterministic offline client
+│   │   ├── factory.py              # Provider selection from settings
+│   │   ├── parsing.py              # JSON extraction + validation
+│   │   └── prompts.py              # System prompt
 │   └── kubernetes/
 │       ├── config.py               # Kubeconfig loading (local + in-cluster)
 │       └── client.py               # KubernetesClient abstraction
@@ -45,7 +53,10 @@ k8s-ai-agent/
 ├── tests/
 │   ├── test_health.py
 │   ├── test_chat.py
-│   └── test_kubernetes.py
+│   ├── test_chat_service.py
+│   ├── test_kubernetes.py
+│   ├── test_llm_factory.py
+│   └── test_llm_parsing.py
 ├── plan/                           # Development plans
 ├── pyproject.toml
 ├── uv.lock
@@ -98,8 +109,30 @@ POST /api/v1/chat
 ```
 
 ```json
-{ "message": "Why is my backend unhealthy?" }
+{ "message": "What does CrashLoopBackOff mean?" }
 ```
+
+Response:
+
+```json
+{
+  "answer": "CrashLoopBackOff means ...",
+  "reasoning_summary": "Identified the question as a concept explanation.",
+  "suggested_next_steps": ["Check pod events in the affected namespace"]
+}
+```
+
+The LLM backend is selected via `LLM_PROVIDER`. With `LLM_PROVIDER=mock` (default) the endpoint returns deterministic offline responses. Configure a real provider by setting `LLM_API_KEY` (see Configuration).
+
+**Chat error responses:**
+
+| Code | Meaning |
+|------|---------|
+| 422 | Empty or missing message |
+| 429 | LLM rate limit exceeded (`Retry-After` header when provided) |
+| 500 | LLM authentication failed (check server config) |
+| 502 | LLM provider unavailable or returned invalid output |
+| 504 | LLM provider timed out |
 
 ### Kubernetes
 
@@ -161,6 +194,20 @@ Environment variables (via `.env` or environment):
 | `APP_HOST` | `0.0.0.0` | Server host |
 | `APP_PORT` | `8000` | Server port |
 | `KUBECONFIG_FILE` | `.kube/config` | Path to kubeconfig |
+| `LLM_PROVIDER` | `mock` | `mock`, `openrouter`, `groq`, `gemini`, `ollama`, `openai` |
+| `LLM_API_KEY` | *(empty)* | Provider API key (not needed for mock/ollama) |
+| `LLM_MODEL` | provider preset | Model ID, e.g. `deepseek/deepseek-r1:free` |
+| `LLM_BASE_URL` | provider preset | Override the OpenAI-compatible base URL |
+| `LLM_TIMEOUT_SECONDS` | `30` | LLM request timeout |
+| `LLM_TEMPERATURE` | `0.2` | Sampling temperature |
+| `LLM_MAX_RETRIES` | `2` | HTTP-level retries inside the SDK |
+
+To use a free OpenRouter model:
+
+```bash
+cp .env.example .env
+# set LLM_API_KEY=<your key from openrouter.ai>
+```
 
 ## RBAC
 
