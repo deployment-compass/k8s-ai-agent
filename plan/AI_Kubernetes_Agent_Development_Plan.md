@@ -295,6 +295,99 @@ The first real Kubernetes AI agent: natural language → tool selection → real
 
 ---
 
+# Phase 5.1 — Agent Activity Logging
+
+**Goal:** Make the agent's behavior visible during operation.
+
+A single chat request can trigger up to ~9 LLM round-trips and multiple
+Kubernetes tool calls. Phase 5.1 adds operational console logging controlled
+by environment variables:
+
+```text
+AGENT_LOG_ENABLED=true|false     # off still shows errors, silences activity
+AGENT_LOG_LEVEL=INFO|DEBUG       # DEBUG adds LLM timing, token usage, result previews
+```
+
+What gets logged:
+
+- Chat request received (truncated message)
+- Agent loop start/complete: mode, rounds used, tool calls, duration
+- Every tool call (name + arguments) and result (status, size, duration)
+- Mode downgrades and tool-budget exhaustion as warnings
+- DEBUG only: LLM latency/tokens, truncated tool-result previews
+
+Security rules:
+
+- Never log API keys or request headers
+- Tool results appear only as short previews (pod logs can contain secrets)
+
+This is operational logging for humans watching a terminal.
+The structured audit trail remains Phase 10.
+
+## Deliverable
+
+Console visibility into every agent decision and tool execution.
+
+---
+
+# Phase 5.2 — Expanded Kubernetes Diagnostics
+
+**Goal:** Let the agent answer *why* something is broken, not just *what* is broken.
+
+The basic `get_pods` view cannot show crash reasons like `OOMKilled` or
+`ImagePullBackOff` — those live in container waiting-states that were never
+captured. Phase 5.2 expands the read-only surface to 21 tools:
+
+## Critical additions
+
+```text
+describe_pod()            container states, waiting reasons, exit codes,
+                          probes, resources, volumes, owner chain
+describe_deployment()     strategy, conditions, owned ReplicaSets
+get_namespaces()          valid namespace discovery
+PodInfo enrichment        containers[] with live state on every get_pods call
+```
+
+## Common failure domains
+
+```text
+get_endpoints()           empty endpoints = selector mismatch
+get_pvcs()                unbound volumes
+get_nodes()               node conditions, pressure
+describe_node()           taints, allocatable vs capacity
+get_replicasets()         rollout tracing
+```
+
+## Situational
+
+```text
+get_ingresses()
+get_statefulsets()
+get_daemonsets()
+get_jobs()
+get_cronjobs()
+get_hpas()
+```
+
+All new capabilities are exposed both as agent tools and REST endpoints,
+with matching read-only RBAC grants (`namespaces`, `endpoints`,
+`persistentvolumeclaims`, `nodes`, `replicasets`, `statefulsets`,
+`daemonsets`, `jobs`, `cronjobs`, `ingresses`, `horizontalpodautoscalers`).
+
+Explicitly excluded:
+
+- ConfigMaps and Secrets — no tools, no RBAC, not even names;
+  a hard-coded system-prompt note makes the agent state this limitation
+- Mutations — remain Phase 7 behind the policy engine
+- metrics-server dependent tools — deferred
+
+## Deliverable
+
+Diagnostic depth across workload, storage, scheduling, networking, and
+autoscaling failure domains.
+
+---
+
 # Phase 6 — Agent State and Reasoning Workflow
 
 **Goal:** Make the agent workflow predictable and controlled.
@@ -798,6 +891,8 @@ The agent can eventually generate an incident report containing findings, action
 | M3 | Least-privilege Kubernetes RBAC |
 | M4 | FastAPI communicates with an LLM |
 | M5 | LLM calls Kubernetes read tools |
+| M5.1 | Agent activity logging |
+| M5.2 | Expanded read-only diagnostics (describe, nodes, storage, workloads) |
 | M6 | Controlled diagnosis workflow |
 | M7 | Controlled mutation tools |
 | M8 | Human approval |

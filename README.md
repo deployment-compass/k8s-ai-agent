@@ -10,6 +10,7 @@ AI-powered Kubernetes Operations Agent. Interact with your Kubernetes cluster us
 | Phase 2 | Kubernetes Integration | Done |
 | Phase 3 | Kubernetes RBAC | Done |
 | Phase 4 | Introduce the LLM | Done |
+| Phase 5 | Tool Calling | Done |
 
 ## Tech Stack
 
@@ -34,17 +35,20 @@ k8s-ai-agent/
 │   │   ├── chat.py                 # POST /api/v1/chat
 │   │   └── kubernetes.py           # Kubernetes REST endpoints
 │   ├── schemas/
-│   │   ├── chat.py                 # ChatRequest/ChatResponse
+│   │   ├── chat.py                 # ChatRequest/ChatResponse/ToolUsage
 │   │   └── kubernetes.py           # PodInfo, DeploymentInfo, etc.
 │   ├── services/
-│   │   └── chat_service.py         # Chat orchestration (LLM call + retry)
+│   │   └── chat_service.py         # Chat orchestration (agent loop wiring)
+│   ├── agent/
+│   │   ├── loop.py                 # Agent loop: native tools + prompted fallback
+│   │   ├── tools.py                # Tool registry, validation, safe executor
+│   │   └── prompts.py              # System prompts (native + prompted modes)
 │   ├── llm/
 │   │   ├── base.py                 # BaseLLMClient interface + exceptions
 │   │   ├── openai_compatible.py    # OpenAI-compatible adapter
-│   │   ├── mock.py                 # Deterministic offline client
+│   │   ├── mock.py                 # Deterministic offline clients (mock + scripted)
 │   │   ├── factory.py              # Provider selection from settings
-│   │   ├── parsing.py              # JSON extraction + validation
-│   │   └── prompts.py              # System prompt
+│   │   └── parsing.py              # JSON extraction + validation
 │   └── kubernetes/
 │       ├── config.py               # Kubeconfig loading (local + in-cluster)
 │       └── client.py               # KubernetesClient abstraction
@@ -54,6 +58,8 @@ k8s-ai-agent/
 │   ├── test_health.py
 │   ├── test_chat.py
 │   ├── test_chat_service.py
+│   ├── test_agent_loop.py
+│   ├── test_agent_tools.py
 │   ├── test_kubernetes.py
 │   ├── test_llm_factory.py
 │   └── test_llm_parsing.py
@@ -116,11 +122,39 @@ Response:
 
 ```json
 {
-  "answer": "CrashLoopBackOff means ...",
-  "reasoning_summary": "Identified the question as a concept explanation.",
-  "suggested_next_steps": ["Check pod events in the affected namespace"]
+  "answer": "The backend deployment has 2 pods in CrashLoopBackOff ...",
+  "reasoning_summary": "Inspected the deployment, pods, events, then logs.",
+  "suggested_next_steps": ["Check database connectivity from the cluster"],
+  "tools_used": [
+    { "tool": "get_deployment", "arguments": { "namespace": "backend", "name": "backend" } },
+    { "tool": "get_pods", "arguments": { "namespace": "backend" } },
+    { "tool": "get_events", "arguments": { "namespace": "backend" } },
+    { "tool": "get_pod_logs", "arguments": { "namespace": "backend", "pod_name": "backend-abc" } }
+  ]
 }
 ```
+
+### Tool calling
+
+With a real provider configured, the agent decides which read-only Kubernetes tools to call:
+
+| Tool | Arguments |
+|------|-----------|
+| `get_pods` | namespace |
+| `get_deployments` | namespace |
+| `get_deployment` | namespace, name |
+| `get_services` | namespace |
+| `get_service` | namespace, name |
+| `get_pod_logs` | namespace, pod_name |
+| `get_events` | namespace |
+
+Behavior:
+- **Native mode** (default): tools sent via the provider's function-calling API
+- **Prompted fallback**: if the model/provider doesn't support native tools, tool descriptions are embedded in the prompt and the model answers with `{action: tool_call | final_answer}` JSON
+- Omitted namespace falls back to `DEFAULT_NAMESPACE`
+- Tool errors (404/403/...) are fed back to the model as reasoning material instead of failing the request
+- Max `AGENT_MAX_TOOL_ITERATIONS` tool rounds per request, then a forced final answer
+- Logs are truncated to the tail; large lists are capped
 
 The LLM backend is selected via `LLM_PROVIDER`. With `LLM_PROVIDER=mock` (default) the endpoint returns deterministic offline responses. Configure a real provider by setting `LLM_API_KEY` (see Configuration).
 
@@ -196,11 +230,30 @@ Environment variables (via `.env` or environment):
 | `KUBECONFIG_FILE` | `.kube/config` | Path to kubeconfig |
 | `LLM_PROVIDER` | `mock` | `mock`, `openrouter`, `groq`, `gemini`, `ollama`, `openai` |
 | `LLM_API_KEY` | *(empty)* | Provider API key (not needed for mock/ollama) |
-| `LLM_MODEL` | provider preset | Model ID, e.g. `deepseek/deepseek-r1:free` |
+| `LLM_MODEL` | provider preset | Model ID, e.g. `meta-llama/llama-3.3-70b-instruct:free` |
 | `LLM_BASE_URL` | provider preset | Override the OpenAI-compatible base URL |
 | `LLM_TIMEOUT_SECONDS` | `30` | LLM request timeout |
 | `LLM_TEMPERATURE` | `0.2` | Sampling temperature |
 | `LLM_MAX_RETRIES` | `2` | HTTP-level retries inside the SDK |
+| `LLM_TOOL_MODE` | `auto` | `auto` (native, falls back to prompted), `native`, `prompted` |
+| `DEFAULT_NAMESPACE` | `default` | Namespace used when tool args omit it |
+| `AGENT_MAX_TOOL_ITERATIONS` | `8` | Max tool-execution rounds per chat request |
+| `AGENT_LOG_ENABLED` | `true` | Console logging of agent activity |
+| `AGENT_LOG_LEVEL` | `INFO` | Log detail: `DEBUG` adds LLM timing, token usage, result previews |
+
+### Agent activity logging
+
+With `AGENT_LOG_ENABLED=true` the console shows what the agent is doing:
+
+```text
+2026-08-21 12:00:01,123 INFO app.services.chat_service Chat request received: 'Why is my backend unhealthy?'
+2026-08-21 12:00:01,124 INFO app.agent.loop Agent loop starting: mode=native max_tool_iterations=8
+2026-08-21 12:00:02,456 INFO app.agent.tools Tool call: get_pods args={'namespace': 'backend'}
+2026-08-21 12:00:02,678 INFO app.agent.tools Tool result: get_pods status=ok size=412 duration=0.221s
+2026-08-21 12:00:03,900 INFO app.agent.loop Agent loop complete: mode=native rounds=1 tool_calls=1 duration=2.78s (final answer produced)
+```
+
+Set `AGENT_LOG_LEVEL=DEBUG` to also see LLM request/response timing, token usage, and truncated tool-result previews. With `AGENT_LOG_ENABLED=false`, activity logs are silenced but errors still appear.
 
 To use a free OpenRouter model:
 

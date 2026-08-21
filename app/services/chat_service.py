@@ -1,54 +1,50 @@
+import logging
+
+from app.agent.loop import AgentLoop
+from app.agent.tools import ToolRegistry
 from app.config import settings
-from app.llm.base import BaseLLMClient, LLMParseError, LLMMessage, LLMResponse
+from app.kubernetes.client import KubernetesClient
+from app.llm.base import BaseLLMClient
 from app.llm.factory import create_llm_client
-from app.llm.parsing import validate_structured_output
-from app.llm.prompts import SYSTEM_PROMPT
 from app.schemas.chat import ChatRequest, ChatResponse
 
-_client: BaseLLMClient | None = None
+logger = logging.getLogger(__name__)
+
+_llm_client: BaseLLMClient | None = None
+_tool_registry: ToolRegistry | None = None
 
 
 def get_llm_client() -> BaseLLMClient:
-    global _client
-    if _client is None:
-        _client = create_llm_client(settings)
-    return _client
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = create_llm_client(settings)
+    return _llm_client
 
 
-def set_llm_client(client: BaseLLMClient) -> None:
-    """Replace the client (used by tests)."""
-    global _client
-    _client = client
+def set_llm_client(client: BaseLLMClient | None) -> None:
+    """Replace the LLM client (used by tests)."""
+    global _llm_client
+    _llm_client = client
+
+
+def get_tool_registry() -> ToolRegistry:
+    global _tool_registry
+    if _tool_registry is None:
+        _tool_registry = ToolRegistry(KubernetesClient(), settings)
+    return _tool_registry
+
+
+def set_tool_registry(registry: ToolRegistry | None) -> None:
+    """Replace the tool registry (used by tests)."""
+    global _tool_registry
+    _tool_registry = registry
 
 
 async def handle_chat(request: ChatRequest) -> ChatResponse:
-    client = get_llm_client()
-    messages = [
-        LLMMessage.system(SYSTEM_PROMPT),
-        LLMMessage.user(request.message),
-    ]
+    logger.info("Chat request received: %r", request.message[:100])
+    agent_loop = AgentLoop(get_llm_client(), get_tool_registry(), settings)
+    result = await agent_loop.run(request.message)
 
-    response = await client.complete(messages)
-    try:
-        return validate_structured_output(response.content, ChatResponse)
-    except LLMParseError:
-        pass
-
-    retry_response = await _retry_with_feedback(client, messages, response.content)
-    return validate_structured_output(retry_response.content, ChatResponse)
-
-
-async def _retry_with_feedback(
-    client: BaseLLMClient,
-    messages: list[LLMMessage],
-    invalid_content: str,
-) -> LLMResponse:
-    corrective = [
-        *messages,
-        LLMMessage(role="assistant", content=invalid_content),
-        LLMMessage.user(
-            "Your previous reply was not valid JSON matching the required schema. "
-            "Respond again with ONLY the corrected JSON object, no other text."
-        ),
-    ]
-    return await client.complete(corrective)
+    response = result.chat_response
+    response.tools_used = result.tools_used
+    return response

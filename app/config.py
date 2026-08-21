@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 30.0
     llm_temperature: float = 0.2
     llm_max_retries: int = 2
+    llm_tool_mode: str = "auto"
+
+    default_namespace: str = "default"
+    agent_max_tool_iterations: int = 8
+    agent_log_enabled: bool = True
+    agent_log_level: str = "INFO"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

@@ -6,7 +6,7 @@ from app.llm.openai_compatible import OpenAICompatibleClient
 PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
-        "default_model": "deepseek/deepseek-r1:free",
+        "default_model": "meta-llama/llama-3.3-70b-instruct:free",
     },
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",

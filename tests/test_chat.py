@@ -61,7 +61,7 @@ async def test_chat_endpoint_missing_message():
 @pytest.mark.asyncio
 async def test_chat_endpoint_maps_rate_limit_to_429():
     class RateLimitedClient(MockLLMClient):
-        async def complete(self, messages):
+        async def complete(self, messages, tools=None):
             raise LLMRateLimitError("rate limited", retry_after_seconds=12)
 
     chat_service.set_llm_client(RateLimitedClient())
@@ -78,7 +78,7 @@ async def test_chat_endpoint_maps_rate_limit_to_429():
 @pytest.mark.asyncio
 async def test_chat_endpoint_maps_timeout_to_504():
     class TimeoutClient(MockLLMClient):
-        async def complete(self, messages):
+        async def complete(self, messages, tools=None):
             raise LLMTimeoutError("timed out")
 
     chat_service.set_llm_client(TimeoutClient())
@@ -94,7 +94,7 @@ async def test_chat_endpoint_maps_timeout_to_504():
 @pytest.mark.asyncio
 async def test_chat_endpoint_maps_auth_error_to_500():
     class AuthFailedClient(MockLLMClient):
-        async def complete(self, messages):
+        async def complete(self, messages, tools=None):
             raise LLMAuthError("invalid key")
 
     chat_service.set_llm_client(AuthFailedClient())
@@ -105,3 +105,4 @@ async def test_chat_endpoint_maps_auth_error_to_500():
         response = await client.post("/api/v1/chat", json={"message": "hi"})
 
     assert response.status_code == 500
+

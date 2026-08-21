@@ -6,10 +6,12 @@ from app.api.v1.chat import router as chat_router
 from app.api.v1.kubernetes import router as kubernetes_router
 from app.config import settings
 from app.kubernetes.config import load_kubernetes_config
+from app.logging_setup import configure_logging
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging(settings)
     load_kubernetes_config()
     yield
 
