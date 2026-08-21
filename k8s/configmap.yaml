@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-ai-agent-config
+  namespace: k8s-ai-agent
+data:
+  # Application
+  APP_ENV: "production"
+  APP_DEBUG: "false"
+  APP_HOST: "0.0.0.0"
+  APP_PORT: "8000"
+
+  # LLM provider — override LLM_PROVIDER / LLM_MODEL per environment.
+  # LLM_API_KEY is intentionally NOT here; it lives in k8s-ai-agent-secret.
+  LLM_PROVIDER: "openrouter"
+  LLM_MODEL: "stealth/ox-alpha"
+  LLM_TOOL_MODE: "auto"
+  LLM_TIMEOUT_SECONDS: "30"
+  LLM_TEMPERATURE: "0.2"
+  LLM_MAX_RETRIES: "2"
+
+  # Agent behaviour — slightly higher iteration cap for in-depth cluster investigation
+  DEFAULT_NAMESPACE: "default"
+  AGENT_MAX_TOOL_ITERATIONS: "12"
+  AGENT_LOG_ENABLED: "true"
+  AGENT_LOG_LEVEL: "INFO"

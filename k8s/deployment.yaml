@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k8s-ai-agent
+  namespace: k8s-ai-agent
+  labels:
+    app: k8s-ai-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-ai-agent
+  template:
+    metadata:
+      labels:
+        app: k8s-ai-agent
+    spec:
+      # Uses the ServiceAccount defined in rbac.yaml — this is what gives the
+      # pod read-only access to the Kubernetes API via the mounted SA token.
+      serviceAccountName: k8s-ai-agent
+
+      containers:
+        - name: k8s-ai-agent
+          image: realshoy/k8s-ai-agent:latest   # replace with <registry>/<image>:<tag>
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          # Non-sensitive config from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: k8s-ai-agent-config
+
+          # Sensitive values from Secret (LLM_API_KEY must not go in ConfigMap)
+          env:
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: k8s-ai-agent-secret
+                  key: LLM_API_KEY
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
