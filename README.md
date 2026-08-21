@@ -8,7 +8,7 @@ AI-powered Kubernetes Operations Agent. Interact with your Kubernetes cluster us
 |-------|-----------|--------|
 | Phase 1 | FastAPI Foundation | Done |
 | Phase 2 | Kubernetes Integration | Done |
-| Phase 3 | Kubernetes RBAC | Pending |
+| Phase 3 | Kubernetes RBAC | Done |
 | Phase 4 | Introduce the LLM | Pending |
 
 ## Tech Stack
@@ -38,8 +38,10 @@ k8s-ai-agent/
 │   ├── services/
 │   │   └── chat_service.py         # Chat business logic
 │   └── kubernetes/
-│       ├── config.py               # Kubeconfig loading
+│       ├── config.py               # Kubeconfig loading (local + in-cluster)
 │       └── client.py               # KubernetesClient abstraction
+├── k8s/
+│   └── rbac.yaml                   # ServiceAccount, ClusterRole, ClusterRoleBinding
 ├── tests/
 │   ├── test_health.py
 │   ├── test_chat.py
@@ -160,6 +162,58 @@ Environment variables (via `.env` or environment):
 | `APP_PORT` | `8000` | Server port |
 | `KUBECONFIG_FILE` | `.kube/config` | Path to kubeconfig |
 
+## RBAC
+
+The application uses least-privilege access via a dedicated ServiceAccount.
+
+**Apply RBAC manifests (required before deploying):**
+
+```bash
+kubectl apply -f k8s/rbac.yaml
+```
+
+This creates 4 resources:
+- Namespace `k8s-ai-agent`
+- ServiceAccount `k8s-ai-agent`
+- ClusterRole with read-only permissions
+- ClusterRoleBinding linking the Role to the ServiceAccount
+
+Kubernetes does not create custom ServiceAccounts for you. The `default` ServiceAccount in each namespace has no special permissions — your app would get 403 on everything without this step.
+
+When deploying the app, specify the ServiceAccount in the pod spec:
+
+```yaml
+spec:
+  serviceAccountName: k8s-ai-agent
+```
+
+Without that line, the pod uses `default` and has no access.
+
+**What the app can do (all namespaces):**
+
+| Resource | Verbs |
+|----------|-------|
+| pods | get, list |
+| pods/log | get |
+| deployments | get, list |
+| services | get, list |
+| events | get, list |
+
+**What the app cannot do:**
+
+- Create, update, or delete any resource
+- Access secrets, configmaps, or namespaces
+- Modify RBAC policies
+
+**Auth behavior:**
+
+| Environment | Authentication |
+|-------------|----------------|
+| Local development | `~/.kube/config` or `.kube/config` |
+| In-cluster (Kubernetes) | ServiceAccount token |
+
+The app automatically detects which environment it's running in.
+
 ## Architecture
 
 ```
@@ -183,7 +237,6 @@ The `KubernetesClient` is the boundary between your application and the Kubernet
 
 ## Roadmap
 
-- Phase 3: Kubernetes RBAC (ServiceAccount, Role, RoleBinding)
 - Phase 4: LLM integration (system messages, context windows, structured output)
 - Phase 5: Tool calling (LLM selects Kubernetes tools)
 - Phase 6: Agent state and reasoning workflow
